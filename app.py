@@ -42,7 +42,7 @@ st.markdown("""
     h1, h2, h3 { color: #D4AF37; text-align: center; }
     .stDataFrame { border: 1px solid #D4AF37; }
 </style>
-""", unsafe_with_html=True)
+""", unsafe_allow_html=True)
 
 if 'players' not in st.session_state:
     st.session_state.players = load_data()
