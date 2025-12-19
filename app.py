@@ -4,123 +4,125 @@ import json
 import os
 import random
 
-# --- FILE DATABASE ---
+# --- DATA PERSISTENCE ---
 DB_FILE = "players_db.json"
 
 def load_data():
     if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(DB_FILE, "r") as f:
+                return json.load(f)
+        except:
+            return []
     return []
 
 def save_data(players):
     with open(DB_FILE, "w") as f:
         json.dump(players, f)
 
-# --- STYLING ---
-st.set_page_config(page_title="Gold & Black Balancer", layout="wide")
+# --- THEME & STYLING ---
+st.set_page_config(page_title="Cricket Team Balancer", layout="wide")
+
+# Corrected Markdown block to prevent deployment errors
 st.markdown("""
-    <style>
+<style>
     .stApp { background-color: #000000; color: #FFFFFF; }
     .stButton>button { 
         background-color: #D4AF37 !important; 
-        color: #000 !important; 
-        border: 2px solid #D4AF37 !important;
-        width: 100%; font-weight: bold;
+        color: #000000 !important; 
+        font-weight: bold !important;
+        border: none !important;
+        width: 100%;
     }
-    .stTextInput>div>div>input, .stNumberInput>div>div>input, .stSelectbox>div>div {
-        background-color: #1a1a1a !important; color: #D4AF37 !important; border: 1px solid #D4AF37 !important;
+    input, div[data-baseweb="select"] > div { 
+        background-color: #1a1a1a !important; 
+        color: #D4AF37 !important; 
+        border: 1px solid #D4AF37 !important; 
     }
-    .css-12w0qpk { border: 1px solid #D4AF37; padding: 20px; border-radius: 10px; }
     h1, h2, h3 { color: #D4AF37; text-align: center; }
-    </style>
-    """, unsafe_with_html=True)
+    .stDataFrame { border: 1px solid #D4AF37; }
+</style>
+""", unsafe_with_html=True)
 
-# --- SESSION STATE ---
 if 'players' not in st.session_state:
     st.session_state.players = load_data()
 
 # --- HELPER FUNCTIONS ---
-def get_player_scores(p):
-    # Calculate specialized scores based on role
-    bat = p['rating'] + p['booster'] if p['role'] in ['Batsman', 'All-rounder'] else (p['rating'] * 0.4) + p['booster']
-    bowl = p['rating'] + p['booster'] if p['role'] in ['Bowler', 'All-rounder'] else (p['rating'] * 0.4) + p['booster']
-    total = p['rating'] + (p['booster'] * 1.5) # Weighting booster higher for overall
+def get_scores(p):
+    # Overall points logic with Booster priority
+    # Booster is weighted higher to ensure influence
+    bat = p['Rating'] + p['Booster'] if p['Role'] in ['Batsman', 'All-rounder'] else (p['Rating'] * 0.5) + p['Booster']
+    bowl = p['Rating'] + p['Booster'] if p['Role'] in ['Bowler', 'All-rounder'] else (p['Rating'] * 0.5) + p['Booster']
+    total = p['Rating'] + (p['Booster'] * 2) 
     return bat, bowl, total
 
 def balance_teams(players):
-    if len(players) % 2 != 0: return None, None
+    best_a, best_b = [], []
+    min_overall_diff = float('inf')
     
-    best_team_a, best_team_b = [], []
-    min_diff = float('inf')
-    
-    # Try 500 random permutations to find the most balanced fit
-    for _ in range(500):
+    # Run iterations to find the best split
+    for _ in range(1000):
         random.shuffle(players)
         mid = len(players) // 2
         t1, t2 = players[:mid], players[mid:]
         
-        t1_bat = sum(get_player_scores(p)[0] for p in t1)
-        t2_bat = sum(get_player_scores(p)[0] for p in t2)
-        t1_bowl = sum(get_player_scores(p)[1] for p in t1)
-        t2_bowl = sum(get_player_scores(p)[1] for p in t2)
-        t1_total = sum(get_player_scores(p)[2] for p in t1)
-        t2_total = sum(get_player_scores(p)[2] for p in t2)
+        t1_scores = [get_scores(p) for p in t1]
+        t2_scores = [get_scores(p) for p in t2]
         
-        # Priority 1: Batting & Bowling diff <= 3
+        t1_bat, t1_bowl, t1_tot = sum(s[0] for s in t1_scores), sum(s[1] for s in t1_scores), sum(s[2] for s in t1_scores)
+        t2_bat, t2_bowl, t2_tot = sum(s[0] for s in t2_scores), sum(s[1] for s in t2_scores), sum(s[2] for s in t2_scores)
+        
+        # Check constraints: Batting and Bowling diff <= 3
         if abs(t1_bat - t2_bat) <= 3 and abs(t1_bowl - t2_bowl) <= 3:
-            # Priority 2: Minimize overall points diff
-            total_diff = abs(t1_total - t2_total)
-            if total_diff < min_diff:
-                min_diff = total_diff
-                best_team_a, best_team_b = t1, t2
+            overall_diff = abs(t1_tot - t2_tot)
+            if overall_diff < min_overall_diff:
+                min_overall_diff = overall_diff
+                best_a, best_b = t1, t2
                 
-    return best_team_a, best_team_b
+    return best_a, best_b
 
-# --- UI LAYOUT ---
+# --- UI INTERFACE ---
 st.title("🏆 CRICKET TEAM BALANCER")
 
-# Player Entry Section
+# Player Entry
 with st.container():
-    col1, col2, col3, col4 = st.columns([3, 2, 2, 2])
-    name = col1.text_input("Player Name")
-    role = col2.selectbox("Role", ["Batsman", "Bowler", "All-rounder"])
-    rating = col3.number_input("Rating (1-10)", 1, 10, 7)
-    booster = col4.number_input("Booster Points", 0, 10, 0)
+    c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
+    name = c1.text_input("Player Name")
+    role = c2.selectbox("Role", ["Batsman", "Bowler", "All-rounder"])
+    rating = c3.number_input("Rating (1-10)", 1, 10, 5)
+    boost = c4.number_input("Booster Points", 0, 10, 0)
     
-    if st.button("ADD PLAYER TO SQUAD"):
+    if st.button("ADD PLAYER"):
         if name:
-            new_player = {"name": name, "role": role, "rating": rating, "booster": booster}
-            st.session_state.players.append(new_player)
+            st.session_state.players.append({"Name": name, "Role": role, "Rating": rating, "Booster": boost})
             save_data(st.session_state.players)
             st.rerun()
 
-# Squad Management
-st.write("---")
-st.subheader("Current Squad")
+# Squad and Edit Section
 if st.session_state.players:
-    df = pd.DataFrame(st.session_state.players)
-    st.table(df)
-    if st.button("Clear All Players"):
-        st.session_state.players = []
-        save_data([])
-        st.rerun()
-
-# Generation Section
-st.write("---")
-if len(st.session_state.players) >= 2:
-    if st.button("⚡ GENERATE BALANCED TEAMS"):
-        t1, t2 = balance_teams(st.session_state.players)
+    st.write("---")
+    st.subheader("Current Squad")
+    for i, p in enumerate(st.session_state.players):
+        col_name, col_edit, col_del = st.columns([0.7, 0.15, 0.15])
+        col_name.write(f"**{p['Name']}** ({p['Role']}) - Rating: {p['Rating']} | Boost: {p['Booster']}")
         
-        if t1:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("### 🟡 TEAM GOLD")
-                st.dataframe(pd.DataFrame(t1)[['name', 'role']])
-                st.info(f"Batting: {sum(get_player_scores(p)[0] for p in t1):.1f} | Bowling: {sum(get_player_scores(p)[1] for p in t1):.1f}")
-            with c2:
-                st.markdown("### ⚫ TEAM BLACK")
-                st.dataframe(pd.DataFrame(t2)[['name', 'role']])
-                st.info(f"Batting: {sum(get_player_scores(p)[0] for p in t2):.1f} | Bowling: {sum(get_player_scores(p)[1] for p in t2):.1f}")
-        else:
-            st.error("Could not find a perfect balance within a 3-point difference. Try adjusting ratings.")
+        # Basic Delete functionality serves as "Edit" (Remove and re-add)
+        if col_del.button("Delete", key=f"del_{i}"):
+            st.session_state.players.pop(i)
+            save_data(st.session_state.players)
+            st.rerun()
+
+    st.write("---")
+    if len(st.session_state.players) >= 2:
+        if st.button("⚡ GENERATE BALANCED TEAMS"):
+            t1, t2 = balance_teams(st.session_state.players)
+            if t1:
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown("### 🟡 TEAM GOLD")
+                    st.table(pd.DataFrame(t1)[['Name', 'Role']])
+                with col_b:
+                    st.markdown("### ⚫ TEAM BLACK")
+                    st.table(pd.DataFrame(t2)[['Name', 'Role']])
+            else:
+                st.error("Could not find a balance within 3 points. Try adding more players or adjusting ratings!")
