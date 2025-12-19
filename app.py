@@ -24,6 +24,7 @@ st.set_page_config(page_title="Cricket Team Balancer", layout="wide")
 
 st.markdown("""
 <style>
+    /* MAIN BACKGROUND */
     .stApp { background-color: #000000; color: #D4AF37; }
     
     /* INPUTS & SELECTBOXES */
@@ -37,7 +38,7 @@ st.markdown("""
     ul[data-testid="stSelectboxVirtualDropdown"] { background-color: #1a1a1a !important; }
     li[role="option"] { color: #D4AF37 !important; }
     
-    /* BUTTONS */
+    /* BUTTONS - FORCED BLACK TEXT */
     div.stButton > button { 
         background-color: #D4AF37 !important; 
         color: #000000 !important; 
@@ -51,10 +52,7 @@ st.markdown("""
     /* TEXT COLORS */
     h1, h2, h3, h4, h5, p, label, .stMarkdown { color: #D4AF37 !important; }
     
-    /* SUCCESS/WARNING BOXES TEXT FIX */
-    .stAlert div[data-testid="stMarkdownContainer"] > p { color: black !important; font-weight: bold; }
-
-    /* DATA EDITOR */
+    /* DATA EDITOR TABLE */
     div[data-testid="stDataEditor"] { border: 1px solid #D4AF37; border-radius: 5px; overflow: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -72,10 +70,7 @@ def calculate_team_stats(team):
     return bat, bowl, total
 
 def balance_teams_with_constraints(all_players, locked_a, locked_b):
-    # Separate available pool from locked players
     pool = [p for p in all_players if p['Name'] not in locked_a and p['Name'] not in locked_b]
-    
-    # Get the locked player objects
     team_a = [p for p in all_players if p['Name'] in locked_a]
     team_b = [p for p in all_players if p['Name'] in locked_b]
     
@@ -86,31 +81,24 @@ def balance_teams_with_constraints(all_players, locked_a, locked_b):
     for _ in range(1000):
         random.shuffle(pool)
         mid = len(pool) // 2
-        # Distribute pool
         temp_a = team_a + pool[:mid]
         temp_b = team_b + pool[mid:]
         
-        # Check basic size balance (allow difference of 1)
         if abs(len(temp_a) - len(temp_b)) > 1: continue
 
         s1 = calculate_team_stats(temp_a)
         s2 = calculate_team_stats(temp_b)
         
-        # Weighted comparison for algorithm (Booster * 2)
-        # We use weighted logic for sorting, but simple math for display
+        # Weighted calculation for sorting logic (Booster x 2)
         w_tot_a = s1[0] + s1[1] + (sum(p['Booster'] for p in temp_a) * 2)
         w_tot_b = s2[0] + s2[1] + (sum(p['Booster'] for p in temp_b) * 2)
         
-        bat_diff = abs(s1[0] - s2[0])
-        bowl_diff = abs(s1[1] - s2[1])
-        
-        if bat_diff <= 3 and bowl_diff <= 3:
+        if abs(s1[0] - s2[0]) <= 3 and abs(s1[1] - s2[1]) <= 3:
             total_diff = abs(w_tot_a - w_tot_b)
             if total_diff < min_diff:
                 min_diff = total_diff
                 best_a, best_b = temp_a, temp_b
                 
-    # Fallback if no perfect match found (just split evenly)
     if not best_a:
         mid = len(pool) // 2
         best_a = team_a + pool[:mid]
@@ -128,7 +116,10 @@ with st.expander("➕ Add New Player", expanded=False):
     role = c2.selectbox("Role", ["All-rounder", "Batsman", "Bowler"])
     bat = c3.number_input("Batting", 0, 10, 5)
     bowl = c4.number_input("Bowling", 0, 10, 5)
-    boost = c5.number_input("Booster", 0, 10, 0, help="Extra points for influence.")
+    
+    # UPDATED TOOLTIP HERE
+    boost = c5.number_input("Booster", 0, 10, 0, 
+                            help="Extra value points! Add points here if the player adds value via Captaincy, Wicket-keeping, or Fielding that isn't captured in batting/bowling stats.")
     
     if st.button("ADD PLAYER"):
         if name:
@@ -151,7 +142,7 @@ if st.session_state.players:
             st.session_state.players = curr
             save_data(st.session_state.players)
 
-# 3. TEAM GENERATION & CONSTRAINTS
+# 3. TEAM GENERATION
 st.write("---")
 st.subheader("⚙️ Generate Teams")
 
@@ -159,11 +150,9 @@ if len(st.session_state.players) >= 2:
     col_lock1, col_lock2 = st.columns(2)
     player_names = [p['Name'] for p in st.session_state.players]
     
-    # CONSTRAINTS INPUTS
     with col_lock1:
         lock_gold = st.multiselect("🔒 Force into TEAM GOLD", player_names)
     with col_lock2:
-        # Filter out players already selected for Gold to avoid duplicates
         avail_black = [p for p in player_names if p not in lock_gold]
         lock_black = st.multiselect("🔒 Force into TEAM BLACK", avail_black)
 
@@ -173,29 +162,35 @@ if len(st.session_state.players) >= 2:
         st.session_state.team_b = t2
         st.rerun()
 
-# 4. RESULTS & SWAP INTERFACE
+# 4. RESULTS & SWAP
 if st.session_state.team_a and st.session_state.team_b:
     st.write("---")
     
-    # Calculate current stats
     a_bat, a_bowl, a_tot = calculate_team_stats(st.session_state.team_a)
     b_bat, b_bowl, b_tot = calculate_team_stats(st.session_state.team_b)
     
-    # DISPLAY TEAMS
     c1, c2 = st.columns(2)
     cols = ['Name', 'Role', 'Batting', 'Bowling', 'Booster']
     
+    # CUSTOM HTML FOR GOLD STAT BOXES
+    def stats_box(bat, bowl, boost, tot):
+        return f"""
+        <div style="background-color: #D4AF37; padding: 10px; border-radius: 5px; color: black; text-align: center; font-weight: bold; margin-bottom: 10px;">
+            🏏 Bat: {bat} | 🥎 Bowl: {bowl} | ✨ Boost: {boost} <br>
+            <span style="font-size: 18px; text-decoration: underline;">TOTAL POINTS: {tot}</span>
+        </div>
+        """
+
     with c1:
         st.markdown(f"### 🟡 TEAM GOLD ({len(st.session_state.team_a)})")
+        st.markdown(stats_box(a_bat, a_bowl, sum(p['Booster'] for p in st.session_state.team_a), a_tot), unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(st.session_state.team_a)[cols], use_container_width=True, hide_index=True)
-        st.success(f"🏏 Bat: {a_bat} | 🥎 Bowl: {a_bowl} | ✨ Booster: {sum(p['Booster'] for p in st.session_state.team_a)} | **TOTAL: {a_tot}**")
         
     with c2:
         st.markdown(f"### ⚫ TEAM BLACK ({len(st.session_state.team_b)})")
+        st.markdown(stats_box(b_bat, b_bowl, sum(p['Booster'] for p in st.session_state.team_b), b_tot), unsafe_allow_html=True)
         st.dataframe(pd.DataFrame(st.session_state.team_b)[cols], use_container_width=True, hide_index=True)
-        st.warning(f"🏏 Bat: {b_bat} | 🥎 Bowl: {b_bowl} | ✨ Booster: {sum(p['Booster'] for p in st.session_state.team_b)} | **TOTAL: {b_tot}**")
 
-    # MANUAL SWAP SECTION
     st.write("---")
     with st.container():
         st.subheader("🔄 Manual Player Swap")
@@ -205,11 +200,8 @@ if st.session_state.team_a and st.session_state.team_b:
         swap_b = sc3.selectbox("Move from Team Black", [p['Name'] for p in st.session_state.team_b])
         
         if sc2.button("↔️ SWAP"):
-            # Find the actual player objects
             p_a = next(p for p in st.session_state.team_a if p['Name'] == swap_a)
             p_b = next(p for p in st.session_state.team_b if p['Name'] == swap_b)
-            
-            # Execute Swap
             st.session_state.team_a.remove(p_a)
             st.session_state.team_b.remove(p_b)
             st.session_state.team_a.append(p_b)
