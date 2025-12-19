@@ -12,7 +12,11 @@ def load_data():
         try:
             with open(DB_FILE, "r") as f:
                 data = json.load(f)
-                if isinstance(data, list): return data
+                if isinstance(data, list):
+                    # Ensure compatibility: Add 'Playing' key if missing from old data
+                    for p in data:
+                        if 'Playing' not in p: p['Playing'] = True
+                    return data
         except: return []
     return []
 
@@ -50,8 +54,11 @@ st.markdown("""
     div.stButton > button p { color: black !important; }
 
     /* TEXT COLORS */
-    h1, h2, h3, h4, h5, p, label, .stMarkdown { color: #D4AF37 !important; }
+    h1, h2, h3, h4, h5, p, label, .stMarkdown, .stCheckbox { color: #D4AF37 !important; }
     
+    /* SUCCESS/WARNING BOXES TEXT FIX */
+    .stAlert div[data-testid="stMarkdownContainer"] > p { color: black !important; font-weight: bold; }
+
     /* DATA EDITOR TABLE */
     div[data-testid="stDataEditor"] { border: 1px solid #D4AF37; border-radius: 5px; overflow: hidden; }
 </style>
@@ -69,10 +76,10 @@ def calculate_team_stats(team):
     total = bat + bowl + boost
     return bat, bowl, total
 
-def balance_teams_with_constraints(all_players, locked_a, locked_b):
-    pool = [p for p in all_players if p['Name'] not in locked_a and p['Name'] not in locked_b]
-    team_a = [p for p in all_players if p['Name'] in locked_a]
-    team_b = [p for p in all_players if p['Name'] in locked_b]
+def balance_teams_with_constraints(active_players, locked_a, locked_b):
+    pool = [p for p in active_players if p['Name'] not in locked_a and p['Name'] not in locked_b]
+    team_a = [p for p in active_players if p['Name'] in locked_a]
+    team_b = [p for p in active_players if p['Name'] in locked_b]
     
     best_a, best_b = [], []
     min_diff = float('inf')
@@ -110,57 +117,83 @@ def balance_teams_with_constraints(all_players, locked_a, locked_b):
 st.title("🏆 CRICKET TEAM BALANCER")
 
 # 1. ADD PLAYER
-with st.expander("➕ Add New Player", expanded=False):
+with st.expander("➕ Add New Player to Database", expanded=False):
     c1, c2, c3, c4, c5 = st.columns([3, 2, 2, 2, 2])
     name = c1.text_input("Name")
     role = c2.selectbox("Role", ["All-rounder", "Batsman", "Bowler"])
     bat = c3.number_input("Batting", 0, 10, 5)
     bowl = c4.number_input("Bowling", 0, 10, 5)
     
-    # UPDATED TOOLTIP HERE
     boost = c5.number_input("Booster", 0, 10, 0, 
-                            help="Extra value points! Add points here if the player adds value via Captaincy, Wicket-keeping, or Fielding that isn't captured in batting/bowling stats.")
+                            help="Extra value points! Add points here if the player adds value via Captaincy, Wicket-keeping, or Fielding.")
     
     if st.button("ADD PLAYER"):
         if name:
-            new_p = {"Name": name, "Role": role, "Batting": bat, "Bowling": bowl, "Booster": boost}
+            new_p = {"Name": name, "Role": role, "Batting": bat, "Bowling": bowl, "Booster": boost, "Playing": True}
             st.session_state.players = [p for p in st.session_state.players if p['Name'] != name]
             st.session_state.players.append(new_p)
             save_data(st.session_state.players)
             st.rerun()
 
-# 2. MANAGE SQUAD
+# 2. MANAGE SQUAD & SELECT ACTIVE PLAYERS
 st.write("---")
 if st.session_state.players:
-    with st.expander("📋 View / Edit Squad", expanded=True):
+    with st.expander("📋 View / Edit Squad (Check 'Playing' to include in match)", expanded=True):
         df = pd.DataFrame(st.session_state.players)
-        for c in ['Batting','Bowling','Booster']: df[c] = df.get(c, 0)
-        edited = st.data_editor(df[['Name','Role','Batting','Bowling','Booster']], num_rows="dynamic", use_container_width=True, key="editor")
+        
+        # Ensure 'Playing' exists and is first
+        if 'Playing' not in df.columns: df['Playing'] = True
+        cols = ['Playing', 'Name', 'Role', 'Batting', 'Bowling', 'Booster']
+        
+        # Data Editor
+        edited = st.data_editor(
+            df[cols], 
+            num_rows="dynamic", 
+            use_container_width=True, 
+            key="editor",
+            column_config={
+                "Playing": st.column_config.CheckboxColumn(
+                    "Playing?",
+                    help="Check this box if the player is available for today's match",
+                    default=True,
+                )
+            }
+        )
         
         curr = edited.to_dict('records')
-        if len(curr) != len(st.session_state.players) or curr != [{k:p.get(k,0 if k!='Role' else '') for k in ['Name','Role','Batting','Bowling','Booster']} for p in st.session_state.players]:
+        
+        # Detect Changes
+        if len(curr) != len(st.session_state.players) or curr != [{k:p.get(k,0 if k not in ['Name','Role'] else (True if k=='Playing' else '')) for k in cols} for p in st.session_state.players]:
             st.session_state.players = curr
             save_data(st.session_state.players)
+            st.rerun()
+
+    # Filter Active Players
+    active_players = [p for p in st.session_state.players if p.get('Playing', True)]
+    st.markdown(f"**✅ Active Players for Today:** {len(active_players)}")
 
 # 3. TEAM GENERATION
 st.write("---")
 st.subheader("⚙️ Generate Teams")
 
-if len(st.session_state.players) >= 2:
+# Only proceed if we have active players
+if 'active_players' in locals() and len(active_players) >= 2:
     col_lock1, col_lock2 = st.columns(2)
-    player_names = [p['Name'] for p in st.session_state.players]
+    active_names = [p['Name'] for p in active_players]
     
     with col_lock1:
-        lock_gold = st.multiselect("🔒 Force into TEAM GOLD", player_names)
+        lock_gold = st.multiselect("🔒 Force into TEAM GOLD", active_names)
     with col_lock2:
-        avail_black = [p for p in player_names if p not in lock_gold]
+        avail_black = [p for p in active_names if p not in lock_gold]
         lock_black = st.multiselect("🔒 Force into TEAM BLACK", avail_black)
 
     if st.button("⚡ GENERATE / RE-ROLL TEAMS"):
-        t1, t2 = balance_teams_with_constraints(st.session_state.players, lock_gold, lock_black)
+        t1, t2 = balance_teams_with_constraints(active_players, lock_gold, lock_black)
         st.session_state.team_a = t1
         st.session_state.team_b = t2
         st.rerun()
+elif 'active_players' in locals():
+    st.error("⚠️ Please select at least 2 players as 'Playing' to generate teams.")
 
 # 4. RESULTS & SWAP
 if st.session_state.team_a and st.session_state.team_b:
@@ -172,7 +205,6 @@ if st.session_state.team_a and st.session_state.team_b:
     c1, c2 = st.columns(2)
     cols = ['Name', 'Role', 'Batting', 'Bowling', 'Booster']
     
-    # CUSTOM HTML FOR GOLD STAT BOXES
     def stats_box(bat, bowl, boost, tot):
         return f"""
         <div style="background-color: #D4AF37; padding: 10px; border-radius: 5px; color: black; text-align: center; font-weight: bold; margin-bottom: 10px;">
